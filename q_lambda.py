@@ -43,6 +43,35 @@ def calculate_state_value(Q_table, state):
     state_value = np.sum(policy_probs * q_values)
     return state_value
 
+def get_cfg():
+    ret = {
+        "RL_PARAM":{"ALPHA": ALPHA,
+                    "GAMMA": GAMMA,
+                    "LAMBDA": LAMBDA,
+                    "EPSILON_START": EPSILON_START,
+                    "EPSILON_END": EPSILON_END,
+                    "EPSILON_DECAY_RATE": EPSILON_DECAY_RATE},
+        "MOOD_PARAM":{"WITH_MOOD": WITH_MOOD,},
+        "REWARD_PARAM":{"REWARD_SUCROSE": REWARD_SUCROSE,
+                        "REWARD_LICK_COST": REWARD_LICK_COST,
+                        "REWARD_OMISSION_RATE": REWARD_OMISSION_RATE,},
+        "TASK_PARAM":{"NUM_EPISODES": NUM_EPISODES,
+                        "TIME_STEP_DURATION": TIME_STEP_DURATION,
+                        "ITI_DURATION_SECONDS": ITI_DURATION_SECONDS,
+                        "REWARD_DELAY_OPTIONS_SECONDS": REWARD_DELAY_OPTIONS_SECONDS,
+                        "MAX_TRIAL_DURATION_SECONDS": MAX_TRIAL_DURATION_SECONDS,
+                        "TIME_PERCEPTION_SIGMA_SECONDS": TIME_PERCEPTION_SIGMA_SECONDS,},
+        "STATE_PARAM":{"MAX_SOUND_STEPS": MAX_SOUND_STEPS,
+                        "NUM_STATES": NUM_STATES,
+                        "ACTION_NOLICK": ACTION_NOLICK,
+                        "ACTION_LICK": ACTION_LICK,
+                        "NUM_ACTIONS": NUM_ACTIONS,
+                        "N_IS_SOUND": N_IS_SOUND,
+                        "N_SOUND_STATE": N_SOUND_STATE,
+                        "N_IS_DROP": N_IS_DROP,
+                        "N_STEP": N_STEP,}
+    }
+    return ret
 # --- パラメータ設定 ---
 # 強化学習パラメータ
 ALPHA = 0.05
@@ -56,11 +85,10 @@ WITH_MOOD = False
 # 報酬設定 <<< 変更点
 REWARD_SUCROSE = 1.0  # スクロースを得た時の報酬
 REWARD_LICK_COST = -0.01 # 報酬がない時に舐めた時のコスト
-REWARD_OMISSION_RATE = 1
+REWARD_OMISSION_RATE = 1.0
 
 # シミュレーションパラメータ
-b = 1
-NUM_EPISODES = int(1000 * b)
+NUM_EPISODES = 1000
 TIME_STEP_DURATION = 0.1
 
 # 環境パラメータ
@@ -83,9 +111,6 @@ N_IS_SOUND = 2
 N_SOUND_STATE = int((1 + 4) / TIME_STEP_DURATION) + 1
 N_IS_DROP = 2
 N_STEP = int(MAX_TRIAL_DURATION_SECONDS / 0.1) + 1
-
-
-
 
 
 def learn(verbose=True):
@@ -226,7 +251,7 @@ def learn(verbose=True):
                 f"- Avg Anticip. Licks: {np.mean(anticipatory_licks_per_episode[-100:]) :.2f} "
                 f"- Epsilon: {epsilon:.3f}")
     
-    return np.array(episode_licks), np.array(vs_list), np.array(episode_rpes), np.array(episode_moods)
+    return np.array(episode_licks), np.array(vs_list), np.array(episode_rpes), np.array(episode_moods), get_cfg()
 
 # --- 結果のプロット (変更なし) ---
 def moving_average(data, window_size):

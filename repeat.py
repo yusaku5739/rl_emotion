@@ -3,9 +3,10 @@ from q_lambda import learn
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import yaml
 
-NUM_REPEAT = 50
-exp_name = "omission_1"
+NUM_REPEAT = 2
+exp_name = "test"
 
 def plot(l, ax, row, col, title, plot_max=None):
     l = np.array(l) 
@@ -28,7 +29,7 @@ anticipatory_rpes = []
 comsumptory_rpes = []
 
 for i in tqdm(range(NUM_REPEAT)):
-    lick, vs, rpe, mood = learn(verbose=False)
+    lick, vs, rpe, mood, cfg = learn(verbose=False)
 
     anticipatory_licks.append(np.sum(lick[:, 50:70], axis=1)/2)
     comsumptory_licks.append(np.sum(lick[:, 70:90], axis=1)/2)
@@ -39,6 +40,8 @@ for i in tqdm(range(NUM_REPEAT)):
     anticipatory_rpes.append(np.max(rpe[:, 50:70], axis=1))
     comsumptory_rpes.append(np.max(rpe[:, 70:90], axis=1))
 
+with open(f'{exp_name}/cfg.yaml', mode='w', encoding='utf-8')as f:
+    yaml.safe_dump(cfg, f)
 
 fig, ax = plt.subplots(3, 2, figsize=(25, 30))
 plot(anticipatory_licks, ax, 0, 0, f"anticipatory_lick: n={NUM_REPEAT}")
