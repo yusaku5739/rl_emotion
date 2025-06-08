@@ -1,10 +1,11 @@
+import os 
 from q_lambda import learn
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-NUM_REPEAT = 5
-NAME = "test"
+NUM_REPEAT = 50
+exp_name = "omission_1"
 
 def plot(l, ax, row, col, title, plot_max=None):
     l = np.array(l) 
@@ -17,6 +18,8 @@ def plot(l, ax, row, col, title, plot_max=None):
     if plot_max is not None:
         ax[row][col].set_ylim(-0.2, plot_max)
 
+os.makedirs(exp_name, exist_ok=True)
+
 anticipatory_licks = []
 comsumptory_licks = []
 anticipatory_vss = []
@@ -26,17 +29,9 @@ comsumptory_rpes = []
 
 for i in tqdm(range(NUM_REPEAT)):
     lick, vs, rpe, mood = learn(verbose=False)
-    
-    m = np.sum(lick[:,:50], axis=1) / 5
-    e = np.std(lick[:,:50], axis=1) 
-    ms = np.array([m for i in range(20)]).T
-    es = np.array([e for i in range(20)]).T
-    
-    #anticipatory_licks.append(np.sum((lick[:, 50:70]-ms)/(es+1), axis=1)/2)
-    #comsumptory_licks.append(np.sum((lick[:, 70:90]-ms)/(es+1), axis=1)/2)
+
     anticipatory_licks.append(np.sum(lick[:, 50:70], axis=1)/2)
     comsumptory_licks.append(np.sum(lick[:, 70:90], axis=1)/2)
-
 
     anticipatory_vss.append(np.mean(vs[:, 50:70], axis=1))
     comsumptory_vss.append(np.mean(vs[:, 70:90], axis=1))
@@ -53,4 +48,11 @@ plot(comsumptory_vss, ax, 1, 1,f"comsumptory_vs: n={NUM_REPEAT}")
 plot(anticipatory_rpes, ax, 2, 0, f"anticipatory_rpes: n={NUM_REPEAT}")
 plot(comsumptory_rpes, ax, 2, 1,f"comsumptory_rpes: n={NUM_REPEAT}")
 
-plt.savefig(f"result_repeat_{NAME}.jpg")
+plt.savefig(f"{exp_name}/result_repeat.jpg")
+
+np.save(f"{exp_name}/anticipatory_licks", anticipatory_licks)
+np.save(f"{exp_name}/comsumptory_licks", comsumptory_licks)
+np.save(f"{exp_name}/anticipatory_vss", anticipatory_vss)
+np.save(f"{exp_name}/comsumptory_vss", comsumptory_vss)
+np.save(f"{exp_name}/anticipatory_rpes", anticipatory_rpes)
+np.save(f"{exp_name}/comsumptory_rpes", comsumptory_rpes)
