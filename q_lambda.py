@@ -56,6 +56,7 @@ WITH_MOOD = False
 # 報酬設定 <<< 変更点
 REWARD_SUCROSE = 1.0  # スクロースを得た時の報酬
 REWARD_LICK_COST = -0.01 # 報酬がない時に舐めた時のコスト
+REWARD_OMISSION_RATE = 1
 
 # シミュレーションパラメータ
 b = 1
@@ -152,7 +153,10 @@ def learn(verbose=True):
             if action == ACTION_LICK:
                 # 報酬がない時に舐めたらコストを与える 
                 if is_reward_window:
-                    reward = REWARD_SUCROSE
+                    if np.random.random() < REWARD_OMISSION_RATE:
+                        reward = REWARD_SUCROSE
+                    else:
+                        reward = 0
                     sucrose_done = True
                 else:
                     if not is_sound_on:
