@@ -51,7 +51,9 @@ def get_cfg():
                     "EPSILON_START": EPSILON_START,
                     "EPSILON_END": EPSILON_END,
                     "EPSILON_DECAY_RATE": EPSILON_DECAY_RATE},
-        "MOOD_PARAM":{"WITH_MOOD": WITH_MOOD,},
+        "MOOD_PARAM":{"WITH_MOOD": WITH_MOOD,
+                      "MOOD_CONSTANT": MOOD_CONSTANT,
+                      "MOOD_N": MOOD_N},
         "REWARD_PARAM":{"REWARD_SUCROSE": REWARD_SUCROSE,
                         "REWARD_LICK_COST": REWARD_LICK_COST,
                         "REWARD_OMISSION_RATE": REWARD_OMISSION_RATE,},
@@ -80,7 +82,10 @@ LAMBDA = 0.99
 EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY_RATE = 0.998
-WITH_MOOD = False
+
+WITH_MOOD = True
+MOOD_CONSTANT = 1.0
+MOOD_N = 100
 
 # 報酬設定 <<< 変更点
 REWARD_SUCROSE = 1.0  # スクロースを得た時の報酬
@@ -126,7 +131,7 @@ def learn(verbose=True):
     episode_rpes = []
     episode_moods = []
     vs_list = []
-    mood = 0
+    mood = MOOD_CONSTANT
     # --- シミュレーションメインループ ---
     epsilon = EPSILON_START
 
@@ -156,7 +161,6 @@ def learn(verbose=True):
         current_step = 0
         current_state = [0, 0, ]
         n_lick=0
-        mood_n = 50
         epsilon = max(EPSILON_END, epsilon * EPSILON_DECAY_RATE)
         time_from_sucrose = 0
         while current_time_seconds < MAX_TRIAL_DURATION_SECONDS:
@@ -219,7 +223,7 @@ def learn(verbose=True):
                 td_target = reward + GAMMA * np.max(Q_table[next_state[0], next_state[1],  :])
             
             td_error = td_target - Q_table[current_state[0], current_state[1],  action]
-            mood = mood + 2/(mood_n+1) * (ALPHA * td_error - mood)
+            mood = mood + 2/(MOOD_N+1) * (ALPHA * td_error - mood) + MOOD_CONSTANT
 
             E_traces[current_state[0], current_state[1],  action] = 1.0 
             Q_table += ALPHA * td_error * E_traces + WITH_MOOD * (1-ALPHA) * mood   
@@ -258,7 +262,7 @@ def moving_average(data, window_size):
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
 def single():
-    episode_licks, vs_list, episode_rpes, episode_moods = learn()
+    episode_licks, vs_list, episode_rpes, episode_moods, cfg = learn()
     window = 50
 
     fig, ax = plt.subplots(2, 5, figsize=(40, 10))

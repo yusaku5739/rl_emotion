@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import yaml
 
-NUM_REPEAT = 2
-exp_name = "test"
+NUM_REPEAT = 50
+exp_name = "mood_constant1_n100"
 
 def plot(l, ax, row, col, title, plot_max=None):
     l = np.array(l) 
