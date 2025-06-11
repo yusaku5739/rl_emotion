@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 
-def softmax(a):
+def softmax(a, temperature=1.0):
     # 式(3.10)の計算
     c = np.max(a) # 最大値
-    exp_a = np.exp(a - c) # 分子:オーバーフロー対策
+    exp_a = np.exp((a - c)/temperature) # 分子:オーバーフロー対策
     sum_exp_a = np.sum(exp_a) # 分母
     y = exp_a / sum_exp_a # 式(3.10)
     return y
@@ -47,9 +47,9 @@ def get_cfg():
                     "LAMBDA": LAMBDA,
                     "EPSILON_START": EPSILON_START,
                     "EPSILON_END": EPSILON_END,
-                    "EPSILON_DECAY_RATE": EPSILON_DECAY_RATE},
+                    "EPSILON_DECAY_RATE": EPSILON_DECAY_RATE,
+                    "Q_DIFF_MAG": Q_DIFF_MAG},
         "MOOD_PARAM":{"WITH_MOOD": WITH_MOOD,
-                      "MOOD_CONSTANT": MOOD_CONSTANT,
                       "MOOD_N": MOOD_N},
         "REWARD_PARAM":{"REWARD_LICK_COST": REWARD_LICK_COST,
                         "CONDITION_SETTING":CONDITION_SETTING,
@@ -91,16 +91,16 @@ LAMBDA = 0.996
 EPSILON_START = 1.0
 EPSILON_END = 0.01
 EPSILON_DECAY_RATE = 0.999 #0.999 2つ
+Q_DIFF_MAG = 3
 
-WITH_MOOD = False
-MOOD_CONSTANT = 0.0
+WITH_MOOD = True
 MOOD_N = 100
 
 # 報酬設定 <<< 変更点
 REWARD_LICK_COST = -0.5 # 報酬がない時に舐めた時のコスト 0.05
 
 # シミュレーションパラメータ
-NUM_EPISODES = 3000
+NUM_EPISODES = 1200
 TIME_STEP_DURATION = 0.1
 
 # 環境パラメータ
@@ -113,9 +113,10 @@ TIME_PERCEPTION_SIGMA_SECONDS = 1.0
 MAX_SOUND_STEPS = int(3.0 / TIME_STEP_DURATION)
 NUM_STATES = 1 + (MAX_SOUND_STEPS + 1)
 CONDITION_SETTING = {
-    "reward":[0,1,10],
+    "reward":[1,1,1],
     "omission":[1,1,1],
-    "condition_name":["reward:0", "reward:1", "reward:10"]
+    "mood":[0, 0.0001, 0.001],
+    "condition_name":["mood_c:0", "mood_c:0.0001", "mood_c:0.0001"]
 }
 NUM_CONDITION = len(CONDITION_SETTING["reward"])
 
@@ -149,7 +150,6 @@ def learn(verbose=True):
     episode_rpes = []
     episode_moods = []
     vs_list = []
-    mood = MOOD_CONSTANT
     # --- シミュレーションメインループ ---
     epsilon = EPSILON_START
 
@@ -157,6 +157,8 @@ def learn(verbose=True):
         condition = conditions_list[episode]
         E_traces.fill(0.0)
 
+        mood_constant = CONDITION_SETTING["mood"][condition]
+        mood = mood_constant
         current_time_seconds = 0.0
         is_sound_on = False
         time_since_sound_onset_steps = 0
@@ -187,20 +189,24 @@ def learn(verbose=True):
             # 報酬提示時以外は、方策に基づいて行動を選択
             if np.random.rand() < epsilon:
                 # εの確率でランダムに行動を選択
-                #action = np.random.randint(0, NUM_ACTIONS)
                 if is_reward_window:
-                    action = np.random.choice(
-                        [ACTION_NOLICK, ACTION_LICK], 
-                        p=[0.1, 0.9] 
-                    )
+                    action = np.random.choice([ACTION_NOLICK, ACTION_LICK], p=[0.1, 0.9])
                 else:
-                    action = np.random.choice(
-                        [ACTION_NOLICK, ACTION_LICK], 
-                        p=[0.9, 0.1] 
-                    )
+                    action = np.random.choice([ACTION_NOLICK, ACTION_LICK], p=[0.9, 0.1])
             else:
-                # 1-εの確率でQ値が最大の行動を選択
-                action = np.argmax(Q_table[current_state[0],  current_state[1], current_state[2], :])
+                q_values = Q_table[current_state[0], current_state[1], current_state[2], :]
+                q_lick = q_values[ACTION_LICK]
+                q_nolick = q_values[ACTION_NOLICK]
+                
+                # Q値の差に基づいてリッキング確率を計算
+                if q_lick > q_nolick:
+                    # Q値の差が大きいほど、リッキング確率が高くなる
+                    lick_prob = 0.5 + 0.5 * np.tanh((q_lick - q_nolick) * Q_DIFF_MAG)
+                    action = np.random.choice([ACTION_NOLICK, ACTION_LICK], 
+                                            p=[1-lick_prob, lick_prob])
+                else:
+                    action = ACTION_NOLICK
+            
             # 報酬の計算
             if action == ACTION_LICK:
                 # 報酬がない時に舐めたらコストを与える 
@@ -252,7 +258,7 @@ def learn(verbose=True):
                 td_target = reward + GAMMA * np.max(Q_table[next_state[0], next_state[1], current_state[2]  :])
             
             td_error = td_target - Q_table[current_state[0], current_state[1], current_state[2], action]
-            mood = mood + 2/(MOOD_N+1) * (ALPHA * td_error - mood) + MOOD_CONSTANT
+            mood = mood + 2/(MOOD_N+1) * (ALPHA * td_error - mood) + mood_constant
 
             E_traces[current_state[0], current_state[1], current_state[2], action] = 1.0 
             Q_table += ALPHA * td_error * E_traces + WITH_MOOD * (1-ALPHA) * mood   
@@ -298,7 +304,7 @@ def single():
     window = 50
     print(len(conditions), len(conditions[0]))
 
-    mag = 100
+    mag = 40
 
     fig, ax = plt.subplots(2, 5, figsize=(40, 10))
     episode_licks = np.array(episode_licks)

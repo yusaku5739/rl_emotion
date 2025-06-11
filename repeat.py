@@ -6,7 +6,7 @@ from tqdm import tqdm
 import yaml
 
 NUM_REPEAT = 50
-exp_name = "rewad_0,1,10"
+exp_name = "reward_0_1_10"
 
 def plot(l, conditions, num_condition, ax, row, col, title, plot_max=None):
     l = np.array(l, dtype=float)
