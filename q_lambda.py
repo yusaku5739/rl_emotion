@@ -33,12 +33,9 @@ def get_fuzzy_sound_status(true_sound_status_code):
 
 def calculate_state_value(Q_table, state):
     """指定された状態の価値V(s)を計算する"""
-    if state[0] >= Q_table.shape[0] or state[1] >= Q_table.shape[1]:
-        # 状態がQテーブルの範囲外の場合（念のための安全策）
-        return 0.0
 
     # softmax方策に基づいた期待値を計算
-    q_values = Q_table[state[0], state[1], :]
+    q_values = Q_table[state[0], state[1], state[2] :]
     policy_probs = softmax(q_values)
     state_value = np.sum(policy_probs * q_values)
     return state_value
@@ -54,9 +51,9 @@ def get_cfg():
         "MOOD_PARAM":{"WITH_MOOD": WITH_MOOD,
                       "MOOD_CONSTANT": MOOD_CONSTANT,
                       "MOOD_N": MOOD_N},
-        "REWARD_PARAM":{"REWARD_SUCROSE": REWARD_SUCROSE,
-                        "REWARD_LICK_COST": REWARD_LICK_COST,
-                        "REWARD_OMISSION_RATE": REWARD_OMISSION_RATE,},
+        "REWARD_PARAM":{"REWARD_LICK_COST": REWARD_LICK_COST,
+                        "CONDITION_SETTING":CONDITION_SETTING,
+                        "NUM_CONDITION":NUM_CONDITION},
         "TASK_PARAM":{"NUM_EPISODES": NUM_EPISODES,
                         "TIME_STEP_DURATION": TIME_STEP_DURATION,
                         "ITI_DURATION_SECONDS": ITI_DURATION_SECONDS,
@@ -74,37 +71,53 @@ def get_cfg():
                         "N_STEP": N_STEP,}
     }
     return ret
+
+def make_coniditions():
+    assert NUM_EPISODES%NUM_CONDITION == 0
+    conditions = np.concatenate([[i for _ in range(int(NUM_EPISODES/NUM_CONDITION))] for i in range(NUM_CONDITION)])
+    random.shuffle(conditions)
+    ret = [[] for _ in range(NUM_CONDITION)]
+    for i, c in enumerate(conditions):
+        ret[c].append(i)
+
+    return conditions, ret
+        
 # --- パラメータ設定 ---
+SEED=42
 # 強化学習パラメータ
 ALPHA = 0.05
 GAMMA = 0.99
-LAMBDA = 0.99
+LAMBDA = 0.996
 EPSILON_START = 1.0
 EPSILON_END = 0.01
-EPSILON_DECAY_RATE = 0.998
+EPSILON_DECAY_RATE = 0.999 #0.999 2つ
 
-WITH_MOOD = True
-MOOD_CONSTANT = 1.0
+WITH_MOOD = False
+MOOD_CONSTANT = 0.0
 MOOD_N = 100
 
 # 報酬設定 <<< 変更点
-REWARD_SUCROSE = 1.0  # スクロースを得た時の報酬
-REWARD_LICK_COST = -0.01 # 報酬がない時に舐めた時のコスト
-REWARD_OMISSION_RATE = 1.0
+REWARD_LICK_COST = -0.5 # 報酬がない時に舐めた時のコスト 0.05
 
 # シミュレーションパラメータ
-NUM_EPISODES = 1000
+NUM_EPISODES = 3000
 TIME_STEP_DURATION = 0.1
 
 # 環境パラメータ
 ITI_DURATION_SECONDS = [5, 5]
 REWARD_DELAY_OPTIONS_SECONDS = [2.0]
 MAX_TRIAL_DURATION_SECONDS = max(ITI_DURATION_SECONDS) + max(REWARD_DELAY_OPTIONS_SECONDS) + 3.0
-TIME_PERCEPTION_SIGMA_SECONDS = 0
+TIME_PERCEPTION_SIGMA_SECONDS = 1.0
 
 # 状態空間の定義
 MAX_SOUND_STEPS = int(3.0 / TIME_STEP_DURATION)
 NUM_STATES = 1 + (MAX_SOUND_STEPS + 1)
+CONDITION_SETTING = {
+    "reward":[0,1,10],
+    "omission":[1,1,1],
+    "condition_name":["reward:0", "reward:1", "reward:10"]
+}
+NUM_CONDITION = len(CONDITION_SETTING["reward"])
 
 # 行動空間の定義
 ACTION_NOLICK = 0
@@ -117,15 +130,20 @@ N_SOUND_STATE = int((1 + 4) / TIME_STEP_DURATION) + 1
 N_IS_DROP = 2
 N_STEP = int(MAX_TRIAL_DURATION_SECONDS / 0.1) + 1
 
+random.seed(SEED)
+np.random.seed(SEED)
+
 
 def learn(verbose=True):
     # --- Qテーブルと適格度トレースの初期化 ---
-    Q_table = np.zeros((N_SOUND_STATE, N_IS_DROP, NUM_ACTIONS))
-    E_traces = np.zeros((N_SOUND_STATE, N_IS_DROP, NUM_ACTIONS))
+    Q_table = np.zeros((N_SOUND_STATE, NUM_CONDITION+1, N_IS_DROP, NUM_ACTIONS))
+    E_traces = np.zeros((N_SOUND_STATE, NUM_CONDITION+1, N_IS_DROP, NUM_ACTIONS))
     # --- 学習記録用 ---
     rewards_per_episode = []
     anticipatory_licks_per_episode = []
     consummatory_licks_per_episode = []
+
+    conditions_list, conditions_index = make_coniditions()
     epsilon_values = []
     episode_licks = []
     episode_rpes = []
@@ -136,6 +154,7 @@ def learn(verbose=True):
     epsilon = EPSILON_START
 
     for episode in range(NUM_EPISODES):
+        condition = conditions_list[episode]
         E_traces.fill(0.0)
 
         current_time_seconds = 0.0
@@ -146,8 +165,7 @@ def learn(verbose=True):
         #current_reward_delay_seconds = max(1, np.random.normal(REWARD_DELAY_OPTIONS_SECONDS[0], 0.5))
         sound_start_seconds = random.randint(ITI_DURATION_SECONDS[0], ITI_DURATION_SECONDS[1])
         reward_delivery_time_seconds = sound_start_seconds + current_reward_delay_seconds
-        trial_duration = reward_delivery_time_seconds + 2.
-
+        
         episode_anticipatory_licks = 0
         episode_consummatory_licks = 0
         episode_total_reward = 0
@@ -159,7 +177,7 @@ def learn(verbose=True):
         
         sucrose_done = False
         current_step = 0
-        current_state = [0, 0, ]
+        current_state = [0, 0, 0]
         n_lick=0
         epsilon = max(EPSILON_END, epsilon * EPSILON_DECAY_RATE)
         time_from_sucrose = 0
@@ -170,20 +188,27 @@ def learn(verbose=True):
             if np.random.rand() < epsilon:
                 # εの確率でランダムに行動を選択
                 #action = np.random.randint(0, NUM_ACTIONS)
-                action = np.random.choice(
-                    [ACTION_NOLICK, ACTION_LICK], 
-                    p=[0.9, 0.1] 
-                )
+                if is_reward_window:
+                    action = np.random.choice(
+                        [ACTION_NOLICK, ACTION_LICK], 
+                        p=[0.1, 0.9] 
+                    )
+                else:
+                    action = np.random.choice(
+                        [ACTION_NOLICK, ACTION_LICK], 
+                        p=[0.9, 0.1] 
+                    )
             else:
                 # 1-εの確率でQ値が最大の行動を選択
-                action = np.argmax(Q_table[current_state[0], current_state[1], :])
-
+                action = np.argmax(Q_table[current_state[0],  current_state[1], current_state[2], :])
             # 報酬の計算
             if action == ACTION_LICK:
                 # 報酬がない時に舐めたらコストを与える 
                 if is_reward_window:
-                    if np.random.random() < REWARD_OMISSION_RATE:
-                        reward = REWARD_SUCROSE
+                    omission_rate = CONDITION_SETTING["omission"][condition]
+                    if np.random.random() < omission_rate:
+                        reward_qty = CONDITION_SETTING["reward"][condition]
+                        reward = reward_qty
                     else:
                         reward = 0
                     sucrose_done = True
@@ -204,14 +229,18 @@ def learn(verbose=True):
             episode_lick.append(action)
             # --- 1タイムステップ進める ---
             current_time_seconds += TIME_STEP_DURATION
-            
-            if not is_sound_on and current_time_seconds >= sound_start_seconds and current_time_seconds > sound_start_seconds + 0.5:
+            if not is_sound_on and current_time_seconds >= sound_start_seconds:
                 is_sound_on = True
                 E_traces.fill(0.0)
+            
+            if current_time_seconds >= sound_start_seconds:
+                next_condition = condition + 1
+            else:
+                next_condition = 0
 
             # --- TD学習の更新プロセス (変更なし) ---
             next_sound_state = 0 if not is_sound_on else get_fuzzy_sound_status(1 + int((current_time_seconds - sound_start_seconds) / TIME_STEP_DURATION))
-            next_state = [next_sound_state, int(is_reward_window),]
+            next_state = [next_sound_state, next_condition, int(is_reward_window),]
 
             v_next = calculate_state_value(Q_table, next_state)
             rpe_v = reward + GAMMA * v_next - v_current
@@ -220,12 +249,12 @@ def learn(verbose=True):
             if current_time_seconds >= MAX_TRIAL_DURATION_SECONDS:
                 td_target = reward
             else:
-                td_target = reward + GAMMA * np.max(Q_table[next_state[0], next_state[1],  :])
+                td_target = reward + GAMMA * np.max(Q_table[next_state[0], next_state[1], current_state[2]  :])
             
-            td_error = td_target - Q_table[current_state[0], current_state[1],  action]
+            td_error = td_target - Q_table[current_state[0], current_state[1], current_state[2], action]
             mood = mood + 2/(MOOD_N+1) * (ALPHA * td_error - mood) + MOOD_CONSTANT
 
-            E_traces[current_state[0], current_state[1],  action] = 1.0 
+            E_traces[current_state[0], current_state[1], current_state[2], action] = 1.0 
             Q_table += ALPHA * td_error * E_traces + WITH_MOOD * (1-ALPHA) * mood   
             E_traces *= GAMMA * LAMBDA
 
@@ -254,78 +283,97 @@ def learn(verbose=True):
             print(f"Episode {episode + 1}/{NUM_EPISODES} - Avg Reward: {np.mean(rewards_per_episode[-100:]) :.2f} "
                 f"- Avg Anticip. Licks: {np.mean(anticipatory_licks_per_episode[-100:]) :.2f} "
                 f"- Epsilon: {epsilon:.3f}")
-    
-    return np.array(episode_licks), np.array(vs_list), np.array(episode_rpes), np.array(episode_moods), get_cfg()
+    #print(Q_table[1:, 1, 0,:])
+    # print(Q_table[1:, 1, 0, 1])
+    #print(Q_table[1:, 2, 0, :])
+    #  print(Q_table[1:, 2, 0, 1])
+    return np.array(episode_licks), np.array(vs_list), np.array(episode_rpes), np.array(episode_moods), np.array(conditions_index), get_cfg()
 
 # --- 結果のプロット (変更なし) ---
 def moving_average(data, window_size):
     return np.convolve(data, np.ones(window_size)/window_size, mode='valid')
 
 def single():
-    episode_licks, vs_list, episode_rpes, episode_moods, cfg = learn()
+    episode_licks, vs_list, episode_rpes, episode_moods, conditions, cfg = learn()
     window = 50
+    print(len(conditions), len(conditions[0]))
+
+    mag = 100
 
     fig, ax = plt.subplots(2, 5, figsize=(40, 10))
     episode_licks = np.array(episode_licks)
     episode_licks = np.array([np.mean(episode_licks[:, i-2:i+2], axis=1) for i in range(2,episode_licks.shape[1]-2)]).T
-    for i, n in enumerate([ii*100 for ii in range(10)]):
-        m = np.mean(episode_licks[n:50+n, :]/0.5, axis=0)
-        se = np.std(episode_licks[n:50+n, :]/0.5, axis=0) / (50**0.5)
-        #lim = max(np.max(m+se), lim)
-        x = [i for i in range(len(m))]
-        ax[i//5][i%5].axvline(50, color="blue")
-        ax[i//5][i%5].axvline(70, color="orange")
-        ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
-        ax[i//5][i%5].set_title(f"licking rate: {n}-{n+50} episode")
-        ax[i//5][i%5].plot(x, m, color="black")
-        ax[i//5][i%5].set_ylim(0, 4)
-
+    for c in range(NUM_CONDITION):
+        episode_licks_ = episode_licks[conditions[c]]
+        for i, n in enumerate([ii*mag for ii in range(10)]):
+            m = np.mean(episode_licks_[n:50+n, :]/0.5, axis=0)
+            se = np.std(episode_licks_[n:50+n, :]/0.5, axis=0) / (50**0.5)
+            #lim = max(np.max(m+se), lim)
+            x = [i for i in range(len(m))]
+            ax[i//5][i%5].axvline(50, color="blue")
+            ax[i//5][i%5].axvline(70, color="orange")
+            ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
+            ax[i//5][i%5].set_title(f"licking rate: {n}-{n+50} episode")
+            ax[i//5][i%5].plot(x, m, label=CONDITION_SETTING["condition_name"][c])
+            ax[i//5][i%5].set_ylim(0, 4)
+    plt.legend()
     plt.savefig("result_q_lambda_lick_trace.jpg")
 
     fig, ax = plt.subplots(2, 5, figsize=(40, 10))
     vs_list = np.array(vs_list)
 
-    for i, n in enumerate([ii*100 for ii in range(10)]):
-        m = np.mean(vs_list[n:50+n, :], axis=0)
-        se = np.std(vs_list[n:50+n, :], axis=0) / (50**0.5)
-        #lim = max(np.max(m+se), lim)
-        x = [i for i in range(len(m))]
-        ax[i//5][i%5].axvline(50, color="blue")
-        ax[i//5][i%5].axvline(70, color="orange")
-        ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
-        ax[i//5][i%5].set_title(f"state value: {n}-{n+50} episode")
-        ax[i//5][i%5].plot(x, m, color="black")
+    
+    for c in range(NUM_CONDITION):
+        vs_list_ = vs_list[conditions[c]]
+        for i, n in enumerate([ii*mag for ii in range(10)]):
+            m = np.mean(vs_list_[n:50+n, :], axis=0)
+            se = np.std(vs_list_[n:50+n, :], axis=0) / (50**0.5)
+            #lim = max(np.max(m+se), lim)
+            x = [i for i in range(len(m))]
+            ax[i//5][i%5].axvline(50, color="blue")
+            ax[i//5][i%5].axvline(70, color="orange")
+            ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
+            ax[i//5][i%5].set_title(f"state value: {n}-{n+50} episode")
+            ax[i//5][i%5].plot(x, m, label=CONDITION_SETTING["condition_name"][c])
+    
+    plt.legend()
     plt.savefig("result_q_lambda_vs.jpg")
 
     fig, ax = plt.subplots(2, 5, figsize=(40, 10))
     episode_rpes = np.array(episode_rpes)
 
-    for i, n in enumerate([ii*100 for ii in range(10)]):
-        m = np.mean(episode_rpes[n:2+n, :], axis=0)
-        se = np.std(episode_rpes[n:2+n, :], axis=0) / (50**0.5)
-        #lim = max(np.max(m+se), lim)
-        x = [i for i in range(len(m))]
-        ax[i//5][i%5].axvline(50, color="blue")
-        ax[i//5][i%5].axvline(70, color="orange")
-        ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
-        ax[i//5][i%5].set_title(f"rpe: {n}-{n+50} episode")
-        ax[i//5][i%5].plot(x, m, color="black")
+    for c in range(NUM_CONDITION):
+        episode_rpes_ = episode_rpes[conditions[c]]
+        for i, n in enumerate([ii*mag for ii in range(10)]):
+            m = np.mean(episode_rpes_[n:2+n, :], axis=0)
+            se = np.std(episode_rpes_[n:2+n, :], axis=0) / (50**0.5)
+            #lim = max(np.max(m+se), lim)
+            x = [i for i in range(len(m))]
+            ax[i//5][i%5].axvline(50, color="blue")
+            ax[i//5][i%5].axvline(70, color="orange")
+            ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
+            ax[i//5][i%5].set_title(f"rpe: {n}-{n+50} episode")
+            ax[i//5][i%5].plot(x, m, label=CONDITION_SETTING["condition_name"][c])
 
+    plt.legend()
     plt.savefig("result_q_lambda_rpe.jpg")
 
     fig, ax = plt.subplots(2, 5, figsize=(40,10))
     episode_moods = np.array(episode_moods)
-    for i, n in enumerate([ii*100 for ii in range(10)]):
-        m = np.mean(episode_moods[n:50+n, :], axis=0)
-        se = np.std(episode_moods[n:50+n, :], axis=0) / (50**0.5)
-        #lim = max(np.max(m+se), lim)
-        x = [i for i in range(len(m))]
-        ax[i//5][i%5].axvline(50, color="blue")
-        ax[i//5][i%5].axvline(70, color="orange")
-        ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
-        ax[i//5][i%5].set_title(f"rpe: {n}-{n+50} episode")
-        ax[i//5][i%5].plot(x, m, color="black")
+    for c in range(NUM_CONDITION):
+        episode_moods_ = episode_moods[conditions[c]]
+        for i, n in enumerate([ii*mag for ii in range(10)]):
+            m = np.mean(episode_moods_[n:50+n, :], axis=0)
+            se = np.std(episode_moods_[n:50+n, :], axis=0) / (50**0.5)
+            #lim = max(np.max(m+se), lim)
+            x = [i for i in range(len(m))]
+            ax[i//5][i%5].axvline(50, color="blue")
+            ax[i//5][i%5].axvline(70, color="orange")
+            ax[i//5][i%5].fill_between(x, m + se,  m - se, alpha=0.2, color='gray')
+            ax[i//5][i%5].set_title(f"rpe: {n}-{n+50} episode")
+            ax[i//5][i%5].plot(x, m, label=CONDITION_SETTING["condition_name"][c])
 
+    plt.legend()
     plt.savefig("result_q_lambda_mood.jpg")
 
 if __name__=="__main__":
